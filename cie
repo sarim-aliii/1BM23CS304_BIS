@@ -1,0 +1,151 @@
+import numpy as np
+import random
+import operator
+import math
+
+POP_SIZE = 80
+GENOME_LEN = 20
+GENERATIONS = 100
+MUT_RATE = 0.1
+CROSS_RATE = 0.7
+
+X = np.linspace(-3, 3, 50)
+y = X**2 + 3*X + 1
+
+FUNCTIONS = {
+    '+': operator.add,
+    '-': operator.sub,
+    '*': operator.mul,
+    '/': lambda a, b: a / b if b != 0 else 1
+}
+
+TERMINALS = ["x"]
+
+def random_gene():
+    if random.random() < 0.5:
+        return random.choice(list(FUNCTIONS.keys()))
+    else:
+        return "x"
+
+
+def express(genome):
+    """
+    Convert a linear genome into an expression using prefix decoding.
+    Unknown/dead genes are ignored.
+    """
+    def decode(index):
+        if index >= len(genome):
+            return None, index
+
+        gene = genome[index]
+
+        if gene in TERMINALS:
+            return ("x",), index + 1
+
+        if gene in FUNCTIONS:
+            left, next_i = decode(index + 1)
+            right, next_i = decode(next_i)
+            return (gene, left, right), next_i
+
+        return None, index + 1
+
+    expr_tree, _ = decode(0)
+    return expr_tree
+
+
+def evaluate(expr, x):
+    if expr is None:
+        return 0
+
+    if expr == ("x",):
+        return x
+
+    op = expr[0]
+    left = evaluate(expr[1], x)
+    right = evaluate(expr[2], x)
+
+    try:
+        return FUNCTIONS[op](left, right)
+    except:
+        return 1
+
+
+def fitness(genome):
+    expr = express(genome)
+    preds = np.array([evaluate(expr, xi) for xi in X])
+    return np.mean((preds - y) ** 2)
+
+
+def tournament(pop, k=3):
+    best = None
+    for _ in range(k):
+        ind = random.choice(pop)
+        if best is None or ind["fitness"] < best["fitness"]:
+            best = ind
+    return best
+
+
+def crossover(g1, g2):
+    if random.random() > CROSS_RATE:
+        return g1.copy(), g2.copy()
+
+    cut = random.randint(1, GENOME_LEN - 1)
+    child1 = g1[:cut] + g2[cut:]
+    child2 = g2[:cut] + g1[cut:]
+    return child1, child2
+
+
+def mutate(genome):
+    for i in range(len(genome)):
+        if random.random() < MUT_RATE:
+            genome[i] = random_gene()
+    return genome
+
+
+def run_gea():
+    population = [
+        {"genome": [random_gene() for _ in range(GENOME_LEN)]}
+        for _ in range(POP_SIZE)
+    ]
+
+    for ind in population:
+        ind["fitness"] = fitness(ind["genome"])
+
+    for gen in range(GENERATIONS):
+
+        new_pop = []
+
+        while len(new_pop) < POP_SIZE:
+            p1 = tournament(population)
+            p2 = tournament(population)
+
+            c1, c2 = crossover(p1["genome"], p2["genome"])
+
+            c1 = mutate(c1)
+            c2 = mutate(c2)
+
+            new_pop.append({"genome": c1, "fitness": fitness(c1)})
+            new_pop.append({"genome": c2, "fitness": fitness(c2)})
+
+        population = sorted(new_pop, key=lambda ind: ind["fitness"])[:POP_SIZE]
+
+        best = population[0]
+        print(f"Generation {gen}: Best fitness = {best['fitness']:.5f}")
+
+    return population[0]
+
+def expr_to_str(expr):
+    if expr == ("x",):
+        return "x"
+    if isinstance(expr, tuple):
+        op, a, b = expr
+        return f"({expr_to_str(a)} {op} {expr_to_str(b)})"
+    return "?"
+
+
+best = run_gea()
+tree = express(best["genome"])
+
+print("\nBest Expression Found:")
+print(expr_to_str(tree))
+print("Fitness:", best["fitness"])
